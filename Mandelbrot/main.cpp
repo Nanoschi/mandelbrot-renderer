@@ -2,149 +2,107 @@
 #include "mandelbrot.h"
 #include "raylib.h"
 
-//#define SHOW_PROGRESS
+struct MbTexture {
+	Image image;
+	Texture2D texture;
+	int width, height;
 
-class Renderer {
-	// Display
-	Image mb_image;
-	Texture mb_texture;
+private:
+	Color background_color;
 	Color set_color;
-	Color bg_color;
-	Color progress_color;
 
-	double screen_x_offset, screen_y_offset;
-	int win_width, win_height;
-	int image_width, image_height;
-
-	// Generation
+	int coordinate_x_offset, coordinate_y_offset;
 	double zoom;
+	int render_steps;
 
 public:
-	Renderer(int _win_width, int _win_height) {
-		win_width = _win_width;
-		win_height = _win_height;
-		image_width = 500;
-		image_height = 500;
+	MbTexture() = default;
 
-		screen_x_offset = 0.5 * image_width;
-		screen_y_offset = 0.5 * image_height;
+	MbTexture(int _width, int _height, int _steps) {
+		width = _width;
+		height = _height;
+		coordinate_x_offset = width / 2;
+		coordinate_y_offset = height / 2;
+		zoom = 200;
 
-		mb_image = GenImageColor(image_width, image_height, PINK);
+		background_color = { 0, 0, 0, 255 };
+		set_color = { 255, 0, 0, 255 };
 
-		set_color = { 230, 34, 171, 255 };
-		bg_color = { 11, 9, 33, 255 };
-		progress_color = WHITE;
-
-		zoom = 300;
-
+		image = GenImageColor(width, height, background_color);
+		render_steps = _steps;
+		
+		if (IsWindowReady()) {
+			texture = LoadTextureFromImage(image);
+		}
+		else {
+			std::cout << "Trying to load texture before initialising window" << std::endl;
+		}
 	}
 
-	~Renderer() {
-		UnloadImage(mb_image);
-		UnloadTexture(mb_texture);
+	MbTexture(int _width, int _height) : MbTexture(_width, _height, 25) {
+		// This constructor delegates to the first constructor with _steps = 25
 	}
 
-	void run() {
-		InitWindow(win_width, win_height, "Mandelbrot Renderer");
-		render_texture();
+	~MbTexture() {
+		UnloadImage(image);
+		UnloadTexture(texture);
+	}
 
-		while (!WindowShouldClose()) {
-			BeginDrawing();
-			
-			get_input();
+	void render() {
+		render(render_steps);
+	}
 
-			DrawTexture(mb_texture, 0, 0, WHITE);
-			Vector2 pos = { 0, 0 };
-			DrawTextureEx(mb_texture, pos, 0, win_width / image_width, WHITE);
+	void render(int steps) {
+		render_steps = steps;
 
-			EndDrawing();
+		for (int y = 0; y < width; y++) {
+			for (int x = 0; x < height; x++) {
+				Color pixel_color = get_pixel_color(x, y, steps);
+				ImageDrawPixel(&image, x, y, pixel_color);
+			}
 		}
 
-		CloseWindow();
+		UnloadTexture(texture);
+		texture = LoadTextureFromImage(image);
+	}
+
+	void draw(int x_pos, int y_pos, double scale) {
+		Vector2 pos = { x_pos, y_pos };
+		DrawTextureEx(texture, pos, 0, scale, WHITE);
+	}
+
+	void zoom_int(double factor) {
+		zoom *= factor;
+		render(render_steps);
+	}
+
+	void zoom_out(double factor) {
+		zoom /= factor;
+		render(render_steps);
+	}
+
+	void move_horizontal(int amount) {
+		coordinate_x_offset += amount;
+		render(render_steps);
+	}
+
+	void move_vertical(int amount) {
+		coordinate_y_offset += amount;
+		render(render_steps);
 	}
 
 private:
-	void get_input() {
-		double zooom_amount = 1.5;
-		double move_amount = 50;
+	Color get_pixel_color(int x, int y, int steps) {
+		// Calculating value at world coordinate
+		double world_x = (x - coordinate_x_offset) / zoom;
+		double world_y = (y - coordinate_y_offset) / zoom;
 
-		if (IsKeyDown(KEY_LEFT_CONTROL)) {
-			zooom_amount = 3;
-			move_amount = 300;
-		}
+		auto complex_coordinate = std::complex<double>(world_x, world_y);
+		double result = is_value_on_set(complex_coordinate, steps);
 
-		if (IsKeyPressed(KEY_KP_ADD)) {
-			zoom *= zooom_amount;
-			render_texture();
-		}
-		else if (IsKeyPressed(KEY_KP_SUBTRACT)) {
-			zoom /= zooom_amount;
-			render_texture();
-		}
+		// Calculate color
+		return blend_colors(background_color, set_color, result);
 
-		if (IsKeyPressed(KEY_LEFT)) {
-			screen_x_offset += move_amount;
-			render_texture();
-		}
-		else if (IsKeyPressed(KEY_RIGHT)) {
-			screen_x_offset -= move_amount;
-			render_texture();
-		}
-		else if (IsKeyPressed(KEY_UP)) {
-			screen_y_offset += move_amount;
-			render_texture();
-		}
-		else if (IsKeyPressed(KEY_DOWN)) {
-			screen_y_offset -= move_amount;
-			render_texture();
-		}
-
-		/*if (IsKeyPressed(KEY_PERIOD)) {
-			ClearBackground(bg_color);
-			image_width *= 1.5;
-			image_height *= 1.5;
-			screen_x_offset = 0.5 * image_width;
-			screen_y_offset = 0.5 * image_height;
-			render_texture();
-		}
-		if (IsKeyPressed(KEY_COMMA)) {
-			ClearBackground(bg_color);
-			image_width /= 1.5;
-			image_height /= 1.5;
-			screen_x_offset = 0.5 * image_width;
-			screen_y_offset = 0.5 * image_height;
-			render_texture();
-		}*/
-	}
-	void render_texture() {
-		Color render_color = {0, 0, 0, 255};
-		int total_pixels = image_width * image_height;
-	   
-
-		for (int y = 0; y < image_height; y++) {
-			for (int x = 0; x < image_width; x++) {
-				get_pixel_color(x, y, render_color);
-				ImageDrawPixel(&mb_image, x, y, render_color);
-			}
-
-#ifdef SHOW_PROGRESS
-			if (y % 10 == 0) {
-				printf("%.0lf%%\n", (double)(y * image_width) / total_pixels * 100);
-			}
-#endif
-		}
-
-		UnloadTexture(mb_texture);
-		mb_texture = LoadTextureFromImage(mb_image);
-	}
-
-	void get_pixel_color(int x, int y, Color& target_color) {
-		double world_x = (x - screen_x_offset) / zoom;
-		double world_y = (y - screen_y_offset) / zoom;
-		auto complex_coord = std::complex<double>(world_x, world_y);
-		double on_set = is_value_on_set(complex_coord);
-
-		target_color = blend_colors(bg_color, set_color, on_set);
 	}
 
 	Color blend_colors(Color color1, Color color2, double weight) {
@@ -156,13 +114,69 @@ private:
 		return result;
 	}
 
-	
 
+};
+
+class App {
+	int win_width, win_height;
+
+public:
+	App(int _win_width, int _win_height) {
+		win_width = _win_width;
+		win_height = _win_height;
+	}
+
+	void run() {
+		InitWindow(win_width, win_height, "Mandelbrot");
+		MbTexture mbt(333, 333, 20);
+		mbt.render();
+
+		while (!WindowShouldClose()) {
+			BeginDrawing();
+
+			get_input(mbt);
+			mbt.draw(0, 0, 3);
+
+			EndDrawing();
+		}
+
+		CloseWindow();
+	}
+
+private:
+	void get_input(MbTexture& mbt) {
+		int move_amount = 50;
+		double zoom_amount = 1.5;
+
+		if (IsKeyDown(KEY_LEFT_CONTROL)) {
+			move_amount = 150;
+			zoom_amount = 3;
+		}
+
+		if (IsKeyPressed(KEY_LEFT)) {
+			mbt.move_horizontal(move_amount);
+		}
+		else if (IsKeyPressed(KEY_RIGHT)) {
+			mbt.move_horizontal(-move_amount);
+		}
+		else if (IsKeyPressed(KEY_UP)) {
+			mbt.move_vertical(move_amount);
+		}
+		else if (IsKeyPressed(KEY_DOWN)) {
+			mbt.move_vertical(-move_amount);
+		}
+
+		if (IsKeyPressed(KEY_KP_ADD)) {
+			mbt.zoom_int(zoom_amount);
+		}
+		else if (IsKeyPressed(KEY_KP_SUBTRACT)) {
+			mbt.zoom_out(zoom_amount);
+		}
+	}
 };
 
 
 int main() {
-	Renderer renderer(1000, 1000);
-
-	renderer.run();
+	App app(1000, 1000);
+	app.run();
 }
